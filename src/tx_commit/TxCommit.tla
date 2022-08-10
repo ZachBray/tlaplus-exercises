@@ -36,6 +36,11 @@ TxConsistent == \neg /\ \E p \in participants: pState[p] = "committed"
                      /\ \E p \in participants: pState[p] = "aborted"
 
 
-TxSpec == TxInit /\ [][TxNext]_Vars
+TxSpec == TxInit /\ [][TxNext]_Vars /\ WF_Vars(TxNext)
+
+TxEventual == /\ (\E p \in participants: pState[p] = "committed") ~> 
+                           (\A p \in participants: pState[p] = "committed")
+              /\ (\E p \in participants: pState[p] = "aborted") ~> 
+                           (\A p \in participants: pState[p] = "aborted")
 
 =======

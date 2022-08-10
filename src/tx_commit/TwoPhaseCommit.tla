@@ -61,7 +61,7 @@ TwoPNext == \/ \E p \in participants: \/ TwoPPartySnd(p, "preparing")
             \/ TwoPManAbort
 
 
-TwoPSpec == TwoPInit /\ [][TwoPNext]_Vars
+TwoPSpec == TwoPInit /\ [][TwoPNext]_Vars /\ WF_Vars(TwoPNext)
 
 -------
 
@@ -69,6 +69,7 @@ Tx == INSTANCE TxCommit
 
 TxConsistent == Tx!TxConsistent
 TxSpec == Tx!TxSpec
+TxEventual == Tx!TxEventual
 
 THEOREM TwoPSpec => TxSpec
 
