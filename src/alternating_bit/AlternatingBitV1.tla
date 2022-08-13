@@ -64,21 +64,23 @@ Next == \/ ASnd
 
 Spec == /\ Init 
         /\ [][Next]_Vars
-        /\ WF_Vars(ASnd)
-        /\ SF_Vars(BRcv)
-        /\ WF_Vars(BSnd)
-        /\ SF_Vars(ARcv)
+
+FairSpec == /\ Spec
+            /\ WF_Vars(ASnd)
+            /\ SF_Vars(BRcv)
+            /\ WF_Vars(BSnd)
+            /\ SF_Vars(ARcv)
 
 -------
 
 AB == INSTANCE AlternatingBit
 
-AB_Spec == AB!ABSpec
+AB_FairSpec == AB!ABFairSpec
 AB_Inv == AB!ABInv
 AB_Eventual == AB!ABEventual
 
 THEOREM Spec => AB_Inv
-THEOREM Spec => AB_Spec
+THEOREM Spec => AB_FairSpec
 THEOREM Spec => AB_Eventual
 
 -------

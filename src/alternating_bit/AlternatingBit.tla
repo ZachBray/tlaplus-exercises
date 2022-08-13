@@ -31,7 +31,9 @@ ABNext == \/ AChooses
 
 ABInv == AVar[BitIndex] = BVar[BitIndex] => AVar = BVar
 
-ABSpec == ABInit /\ [][ABNext]_<<AVar, BVar>> /\ WF_<<AVar, BVar>>(ABNext)
+ABSpec == ABInit /\ [][ABNext]_<<AVar, BVar>>
+
+ABFairSpec == ABSpec /\ WF_<<AVar, BVar>>(ABNext)
 
 ABEventual == \A v \in ABVar: (AVar = v) ~> (BVar = v)
 
