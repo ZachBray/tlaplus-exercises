@@ -97,6 +97,23 @@ THEOREM Spec => AB_Spec
 
 -------
 
+RECURSIVE FilterNot(_, _)
+FilterNot(seq, x) == 
+  IF seq = <<>>
+  THEN <<>>
+  ELSE IF Head(seq) = x 
+       THEN FilterNot(Tail(seq), x)
+       ELSE <<Head(seq)>> \o FilterNot(Tail(seq), x)
+
+ABv1 == INSTANCE AlternatingBitV1 WITH AToB <- FilterNot(AToB2, Bad),
+                                       BToA <- FilterNot(BToA2, Bad)
+
+ABv1_Spec == ABv1!Spec
+
+THEOREM Spec => ABv1_Spec
+
+-------
+
 Checkable == /\ Len(AToB2) <= 3
              /\ Len(BToA2) <= 3
 
