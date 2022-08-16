@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -euf -o pipefail
+
 script_path=$(readlink -f -- "$0")
 dir=$(dirname -- $script_path)
 

@@ -1,2 +1,7 @@
 *_TTrace_*.tla
 states
+*.pdf
+*.dvi
+*.tex
+*.log
+*.aux
