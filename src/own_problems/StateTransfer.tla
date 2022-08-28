@@ -76,6 +76,7 @@ TypeOK ==
                                                   \* it has observed or empty.
   /\ network \in Seq(Messages) \* The network is a queue of messages
                                \* from the mutator to the observer.
+  /\ \E mutation \in Mutations: DOMAIN mutation = { mutator }
 
 -------
 
