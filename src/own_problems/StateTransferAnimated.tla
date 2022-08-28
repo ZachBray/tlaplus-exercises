@@ -21,6 +21,10 @@ NetworkSlotBox(n) ==
       w |-> width - 2 * padding,
       h |-> NetworkPos.h - 2 * padding ]
 
+TopHalf(box) == [box EXCEPT !.h = box.h \div 2]
+BottomHalf(box) == [box EXCEPT !.y = box.y + box.h \div 2,
+                               !.h = box.h \div 2]
+
 StateBoxStyle == [
   stroke |-> "black",
   stroke_thickness |-> "2px",
@@ -65,14 +69,19 @@ NodeState(name, position, state) ==
   Box(box, StateBoxStyle) \o
   LabelIn(ToString(state), box)
 
+
 NetworkSlot(i, msg) == 
   LET
     box == NetworkSlotBox(i)
-    label == msg.type
+    value == IF msg.type = "delta" THEN
+               LET old == CHOOSE old \in PickableValues: msg.event[old] # Invalid IN
+               ToString(old) \o " -> " \o ToString(msg.event[old])
+             ELSE ToString(msg.value)
     style == IF msg.type = "delta" THEN DeltaBoxStyle ELSE SnapshotBoxStyle
   IN
     Box(box, style) \o
-    LabelIn(label, box)
+    LabelIn(msg.type, TopHalf(box)) \o
+    LabelIn(value, BottomHalf(box))
 
 Network ==
   Label("network", [ x |-> NetworkPos.x + NetworkPos.w \div 2, y |-> NodeLabelPos.y ]) \o
