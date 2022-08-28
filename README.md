@@ -13,6 +13,13 @@ The repository layout is as follows:
     └── own_problems        -  My own (various) specifications.
 ```
 
+### Tools in the container
+
+- `tlc $SPEC` runs the model checker on `$SPEC.tla` with the configuration in `$SPEC.cfg`
+- `tla2pdf $SPEC` converts `$SPEC.tla` into a PDF document, `$SPEC.pdf`, via Latex
+- `animate_tlc_trace $SPEC` converts the TLC trace output of a failing `$SPEC.tla` into an SVG-based animation in `$SPEC.html`
+    - It expects the associated configuration `$SPEC.cfg` to define a `VIEW` where that `VIEW` maps each state onto an SVG group. See `src/own_problems/StateTransferAnimated.tla` for example.
+
 ### Useful links
 
 #### Videos
