@@ -21,6 +21,11 @@ CONSTANT PickableValues
 CONSTANT Empty
 ASSUME Empty \notin PickableValues
 
+\* A value, not in PickableValues, that allows the simulation of a partial function
+\* in Mutations below.
+CONSTANT Invalid
+ASSUME Invalid \notin PickableValues
+
 \* The maximum number of messages that the (FIFO) network can hold at any time.
 CONSTANT NetworkCapacity
 ASSUME NetworkCapacity \in Nat
@@ -51,7 +56,7 @@ vars == <<mutator, observer, network>>
 \* variables above inhabit.
 
 \* The set of possible mutations that the mutator may perform.
-Mutations == [PickableValues -> PickableValues]
+Mutations == [PickableValues -> PickableValues \union { Invalid }]
 
 \* The set of possible snapshot messages the mutator may send
 \* to the observer. At the time of sending, it contains
@@ -76,7 +81,6 @@ TypeOK ==
                                                   \* it has observed or empty.
   /\ network \in Seq(Messages) \* The network is a queue of messages
                                \* from the mutator to the observer.
-  /\ \E mutation \in Mutations: DOMAIN mutation = { mutator }
 
 -------
 
@@ -104,9 +108,11 @@ TransferSnapshot ==
 \* pick a new value and send an event to the observer that describes the transition.
 TransferDelta ==
   /\ Len(network) < NetworkCapacity
-  /\ \E event \in Mutations: 
-       /\ DOMAIN event = {mutator}
-       /\ mutator' = event[mutator]
+  /\ \E next \in PickableValues: 
+       LET 
+         event == [ v \in PickableValues |-> IF v = mutator THEN next ELSE Invalid ]
+       IN
+       /\ mutator' = next
        /\ network' = Append(network, [type |-> "delta", event |-> event])
        /\ UNCHANGED <<observer>>
 
@@ -177,14 +183,8 @@ FairSpec ==
 
 \* This property says that the observer evenutally witnesses
 \* any value that the mutator picks.
-StateTransfers == [](\A v \in PickableValues: mutator = v ~> observer = v)
-                  \* Note: I'm surprised the model checker says that the behaviours
-                  \* of FairSpec satisfy this property, as I can imagine some
-                  \* infinite behaviours that start with the prefix:
-                  \*  - TransferDelta  (i.e., pick a new value)
-                  \*  - Disconnect     (i.e., lose value)
-                  \*  - TransferDelta  (i.e., pick a new value)
-                  \*  - ...
+StateTransfers == [](\A v \in PickableValues: mutator = v ~> \/ observer = v 
+                                                             \/ observer = Empty)
 
 =======
 
