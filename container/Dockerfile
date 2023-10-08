@@ -8,16 +8,27 @@ RUN yum install -y \
   texlive-pdftex \
   texlive-latex-bin
 
-RUN mkdir /root/tla/
-RUN curl -L https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar -o /root/tla/tla2tools.jar
+ARG UID
+ARG GID
+
+RUN groupadd -g $GID tlausers && \
+    useradd -u $UID -g tlausers tlauser
+
+RUN mkdir /home/tlauser/tla/
+RUN curl -L https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar -o /home/tlauser/tla/tla2tools.jar
 
 ENV COMMUNITY_VER=202208261745
-RUN curl -L https://github.com/tlaplus/CommunityModules/releases/download/${COMMUNITY_VER}/CommunityModules-${COMMUNITY_VER}.jar -o /root/tla/CommunityModules.jar
-RUN curl -L https://github.com/tlaplus/CommunityModules/releases/download/${COMMUNITY_VER}/CommunityModules-deps-${COMMUNITY_VER}.jar -o /root/tla/CommunityModules-deps.jar
+RUN curl -L https://github.com/tlaplus/CommunityModules/releases/download/${COMMUNITY_VER}/CommunityModules-${COMMUNITY_VER}.jar -o /home/tlauser/tla/CommunityModules.jar
+RUN curl -L https://github.com/tlaplus/CommunityModules/releases/download/${COMMUNITY_VER}/CommunityModules-deps-${COMMUNITY_VER}.jar -o /home/tlauser/tla/CommunityModules-deps.jar
 
-COPY root/tla/*.* /root/tla/
-COPY root/.bashrc /root/.bashrc
-VOLUME /root/src
-WORKDIR /root/src
+COPY home/tlauser/tla/*.* /home/tlauser/tla/
+COPY home/tlauser/.bashrc /home/tlauser/.bashrc
+
+RUN chown -R tlauser:tlausers /home/tlauser
+
+USER tlauser
+
+VOLUME /home/tlauser/src
+WORKDIR /home/tlauser/src
 
 ENTRYPOINT /bin/bash
