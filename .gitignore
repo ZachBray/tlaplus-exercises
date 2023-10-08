@@ -5,3 +5,4 @@ states
 *.log
 *.aux
 *.html
+.idea
