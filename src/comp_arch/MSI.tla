@@ -3,9 +3,9 @@
 EXTENDS FiniteSets, Naturals, Sequences
 
 CONSTANTS Addresses, Values, ProcessCount
-VARIABLES memory, memory_bus, caches, metadata, cache_buses
+VARIABLES memory, memory_bus, bus_owner, caches, metadata, cache_buses
 
-vars == <<memory, memory_bus, caches, metadata, cache_buses>>
+vars == <<memory, memory_bus, bus_owner, caches, metadata, cache_buses>>
 
 ProcessIds == 1..ProcessCount
 MemoryId == 0
@@ -23,180 +23,173 @@ TypeOK ==
 
 Init ==
     /\ memory = [a \in Addresses |-> Zero]
-    /\ memory_bus = [p \in BusDestinations |-> <<>>]
+    /\ memory_bus = <<>>
+    /\ bus_owner = MemoryId
     /\ caches = [p \in ProcessIds |-> [a \in Addresses |-> Zero]]
     /\ metadata = [p \in ProcessIds |-> [a \in Addresses |-> "Invalid"]]
-    /\ cache_buses = [p \in ProcessIds |-> <<>>]
+    /\ cache_buses = [p \in ProcessIds |-> [type |-> "Ready"]]
 
-MemoryBusEmpty == \A p \in BusDestinations : memory_bus[p] = <<>>
+BusEmpty ==
+    memory_bus = <<>>
 
-MemoryBusRequest(msg) ==
-    memory_bus' = [ d \in BusDestinations |-> <<msg>> ]
+BusSend(msg) ==
+    /\ msg.sender = bus_owner
+    /\ memory_bus' = <<msg>>
 
-MemoryBusReply(msg) ==
-    memory_bus' = [ d \in BusDestinations |-> IF d = MemoryId THEN <<>> ELSE <<msg>> ]
+BusRead(endpoint, H(_)) ==
+    /\ bus_owner = endpoint
+    /\ memory_bus # <<>>
+    /\ H(Head(memory_bus))
 
-MemoryBusRespond(H(_)) ==
-    /\ memory_bus[MemoryId] # <<>>
-    /\ \A p \in ProcessIds : memory_bus[p] = <<>>
-    /\ \/ /\ Head(memory_bus[MemoryId]).sender = MemoryId
-          /\ UNCHANGED <<memory, memory_bus, caches, metadata, cache_buses>>
-       \/ /\ Head(memory_bus[MemoryId]).sender # MemoryId
-          /\ H(Head(memory_bus[MemoryId]))
-
-MemoryBusConsume(endpoint, H(_)) ==
-    /\ memory_bus[endpoint] # <<>>
-    /\ \/ /\ Head(memory_bus[endpoint]).sender = endpoint
-          /\ UNCHANGED <<memory, caches, metadata, cache_buses>>
-       \/ /\ Head(memory_bus[endpoint]).sender # endpoint
-          /\ H(Head(memory_bus[endpoint]))
-    /\ memory_bus' = [ memory_bus EXCEPT ![endpoint] = <<>> ]
+BusConsume ==
+    memory_bus' = <<>>
 
 PrRd(p) ==
     /\ p \in ProcessIds
-    /\ cache_buses[p] = <<>>
+    /\ cache_buses[p] = <<>> \/ cache_buses[p].type = "Ready"
     /\ \E a \in Addresses :
-        /\ cache_buses' = [ cache_buses EXCEPT ![p] = <<[type |-> "PrRd", addr |-> a]>> ]
-        /\ UNCHANGED <<memory, memory_bus, caches, metadata>>
+        /\ cache_buses' = [ cache_buses EXCEPT ![p] = [type |-> "PrRd", addr |-> a] ]
+        /\ UNCHANGED <<memory, memory_bus, bus_owner, caches, metadata>>
 
 PrWr(p) ==
     /\ p \in ProcessIds
-    /\ cache_buses[p] = <<>>
+    /\ cache_buses[p] = <<>> \/ cache_buses[p].type = "Ready"
     /\ \E a \in Addresses, v \in Values :
-        /\ cache_buses' = [ cache_buses EXCEPT ![p] = <<[ type |-> "PrWr", addr |-> a, val |-> v]>> ]
-        /\ UNCHANGED <<memory, memory_bus, caches, metadata>>
-
-PrContinue(p) ==
-    /\ p \in ProcessIds
-    /\ cache_buses[p] # <<>>
-    /\ Head(cache_buses[p]).type = "Ready"
-    /\ cache_buses' = [ cache_buses EXCEPT ![p] = <<>> ]
-    /\ UNCHANGED <<memory, memory_bus, caches, metadata>>
+        /\ cache_buses' = [ cache_buses EXCEPT ![p] = [type |-> "PrWr", addr |-> a, val |-> v] ]
+        /\ UNCHANGED <<memory, memory_bus, bus_owner, caches, metadata>>
 
 LOCAL PendingPrRd(p, state, Transition(_)) ==
     /\ p \in ProcessIds
-    /\ cache_buses[p] # <<>>
-    /\ Head(cache_buses[p]).type = "PrRd"
-    /\ LET a == Head(cache_buses[p]).addr
+    /\ cache_buses[p].type = "PrRd"
+    /\ LET a == cache_buses[p].addr
        IN  /\ metadata[p][a] = state
            /\ Transition(a)
 
 RdModified(p) ==
     LET Transition(a) ==
         LET v == caches[p][a]
-        IN  /\ MemoryBusEmpty
-            /\ cache_buses' = [ cache_buses EXCEPT ![p] = <<[type |-> "Ready", addr |-> a, val |-> v ]>> ]
-            /\ UNCHANGED <<memory, memory_bus, caches, metadata>>
-    IN PendingPrRd(p, "Modified", Transition)
+        IN  /\ BusEmpty
+            /\ cache_buses' = [ cache_buses EXCEPT ![p] = [type |-> "Ready", addr |-> a, val |-> v ] ]
+            /\ UNCHANGED <<memory, memory_bus, bus_owner, caches, metadata>>
+    IN /\ PendingPrRd(p, "Modified", Transition)
 
 RdShared(p) ==
     LET Transition(a) ==
         LET v == caches[p][a]
-        IN  /\ MemoryBusEmpty
-            /\ cache_buses' = [ cache_buses EXCEPT ![p] = <<[type |-> "Ready", addr |-> a, val |-> v ]>> ]
-            /\ UNCHANGED <<memory, memory_bus, caches, metadata>>
-    IN PendingPrRd(p, "Shared", Transition)
+        IN  /\ BusEmpty
+            /\ cache_buses' = [ cache_buses EXCEPT ![p] = [type |-> "Ready", addr |-> a, val |-> v ] ]
+            /\ UNCHANGED <<memory, memory_bus, bus_owner, caches, metadata>>
+    IN /\ PendingPrRd(p, "Shared", Transition)
 
 RdInvalidBegin(p) ==
     LET Transition(a) ==
-         /\ MemoryBusEmpty
-         /\ MemoryBusRequest([type |-> "Rd", sender |-> p, origin |-> p, addr |-> a])
-         /\ UNCHANGED <<memory, caches, metadata, cache_buses>>
-    IN PendingPrRd(p, "Invalid", Transition)
+         /\ BusEmpty
+         /\ BusSend([type |-> "Rd", sender |-> p, origin |-> p, addr |-> a])
+         /\ UNCHANGED <<memory, bus_owner, caches, metadata, cache_buses>>
+    IN /\ PendingPrRd(p, "Invalid", Transition)
 
 RdInvalidEnd(p) ==
     LET Transition(a) ==
         LET HandleReply(msg) ==
-            /\ msg.type = "RdReply"
+            /\ msg.type = "Rd"
             /\ msg.addr = a
             /\ msg.origin = p
+            /\ msg.sender = MemoryId
             /\ caches' = [ caches EXCEPT ![p][a] = msg.val ]
             /\ metadata' = [ metadata EXCEPT ![p][a] = "Shared" ]
-            /\ cache_buses' = [ cache_buses EXCEPT ![p] = <<[type |-> "Ready", addr |-> a, val |-> msg.val ]>> ]
-            /\ UNCHANGED <<memory>>
-        IN MemoryBusConsume(p, HandleReply)
-    IN PendingPrRd(p, "Invalid", Transition)
+            /\ cache_buses' = [ cache_buses EXCEPT ![p] = [type |-> "Ready", addr |-> a, val |-> msg.val ] ]
+            /\ BusConsume
+            /\ UNCHANGED <<memory, bus_owner>>
+        IN BusRead(p, HandleReply)
+    IN /\ PendingPrRd(p, "Invalid", Transition)
 
 RdMemory ==
     LET HandleRequest(msg) ==
         /\ msg.type = "Rd"
-        /\ MemoryBusReply([type |-> "RdReply", sender |-> MemoryId, origin |-> msg.sender, addr |-> msg.addr, val |-> memory[msg.addr]])
-        /\ UNCHANGED <<memory, caches, metadata, cache_buses>>
-    IN MemoryBusRespond(HandleRequest)
+        /\ msg.sender # MemoryId
+        /\ BusSend([type |-> "Rd", sender |-> MemoryId, origin |-> msg.sender, addr |-> msg.addr, val |-> memory[msg.addr]])
+        /\ UNCHANGED <<memory, bus_owner, caches, metadata, cache_buses>>
+    IN /\ BusRead(MemoryId, HandleRequest)
 
 LOCAL PendingPrWr(p, state, Transition(_,_)) ==
     /\ p \in ProcessIds
-    /\ cache_buses[p] # <<>>
-    /\ Head(cache_buses[p]).type = "PrWr"
-    /\ LET a == Head(cache_buses[p]).addr
-           v == Head(cache_buses[p]).val
+    /\ cache_buses[p].type = "PrWr"
+    /\ LET a == cache_buses[p].addr
+           v == cache_buses[p].val
        IN  /\ metadata[p][a] = state
            /\ Transition(a, v)
 
 WrModifiedBegin(p) ==
     LET Transition(a, v) ==
-        /\ MemoryBusEmpty
-        /\ caches' = [ caches EXCEPT ![p][a] = v ]
-        /\ cache_buses' = [ cache_buses EXCEPT ![p] = <<[type |-> "Ready", addr |-> a, val |-> v ]>> ]
-        /\ MemoryBusRequest([type |-> "Wr", sender |-> p, origin |-> p, addr |-> a, val |-> v])
-        /\ UNCHANGED <<memory, metadata>>
-    IN PendingPrWr(p, "Modified", Transition)
+        /\ BusEmpty
+        /\ BusSend([type |-> "Wr", sender |-> p, origin |-> p, addr |-> a, val |-> v])
+        /\ UNCHANGED <<memory, bus_owner, caches, metadata, cache_buses>>
+    IN /\ PendingPrWr(p, "Modified", Transition)
 
 WrModifiedEnd(p) ==
     LET HandleReply(msg) ==
-        /\ msg.type = "WrReply"
+        /\ msg.type = "Wr"
         /\ msg.origin = p
-        /\ metadata[p][msg.addr] = "Modified"
-        /\ UNCHANGED <<memory, caches, metadata, cache_buses>>
-    IN MemoryBusConsume(p, HandleReply)
+        /\ msg.sender = MemoryId
+        /\ metadata' = [ metadata EXCEPT ![p][msg.addr] = "Modified" ]
+        /\ caches' = [ caches EXCEPT ![p][msg.addr] = msg.val ]
+        /\ cache_buses' = [ cache_buses EXCEPT ![p] = [type |-> "Ready", addr |-> msg.addr, val |-> msg.val ] ]
+        /\ BusConsume
+        /\ UNCHANGED <<memory, bus_owner>>
+    IN /\ BusRead(p, HandleReply)
 
 WrSharedBegin(p) ==
     LET Transition(a, v) ==
-        /\ MemoryBusEmpty
-        /\ MemoryBusRequest([type |-> "Wr", sender |-> p, origin |-> p, addr |-> a, val |-> v])
-        /\ UNCHANGED <<memory, caches, metadata, cache_buses>>
-    IN PendingPrWr(p, "Shared", Transition)
+        /\ BusEmpty
+        /\ BusSend([type |-> "Wr", sender |-> p, origin |-> p, addr |-> a, val |-> v])
+        /\ UNCHANGED <<memory, bus_owner, caches, metadata, cache_buses>>
+    IN /\ PendingPrWr(p, "Shared", Transition)
 
 WrSharedEnd(p) ==
     LET Transition(a, v) ==
         LET HandleReply(msg) ==
-            /\ msg.type = "WrReply"
+            /\ msg.type = "Wr"
             /\ msg.addr = a
             /\ msg.origin = p
+            /\ msg.sender = MemoryId
             /\ caches' = [ caches EXCEPT ![p][a] = msg.val ]
             /\ metadata' = [ metadata EXCEPT ![p][a] = "Modified" ]
-            /\ cache_buses' = [ cache_buses EXCEPT ![p] = <<[type |-> "Ready", addr |-> a, val |-> msg.val ]>> ]
-            /\ UNCHANGED <<memory>>
-        IN MemoryBusConsume(p, HandleReply)
-    IN PendingPrWr(p, "Shared", Transition)
+            /\ cache_buses' = [ cache_buses EXCEPT ![p] = [type |-> "Ready", addr |-> a, val |-> msg.val ] ]
+            /\ BusConsume
+            /\ UNCHANGED <<memory, bus_owner>>
+        IN BusRead(p, HandleReply)
+    IN /\ PendingPrWr(p, "Shared", Transition)
 
 WrInvalidBegin(p) ==
     LET Transition(a, v) ==
-        /\ MemoryBusEmpty
-        /\ MemoryBusRequest([type |-> "Wr", sender |-> p, origin |-> p, addr |-> a, val |-> v])
-        /\ UNCHANGED <<memory, caches, metadata, cache_buses>>
-    IN PendingPrWr(p, "Invalid", Transition)
+        /\ BusEmpty
+        /\ BusSend([type |-> "Wr", sender |-> p, origin |-> p, addr |-> a, val |-> v])
+        /\ UNCHANGED <<memory, bus_owner, caches, metadata, cache_buses>>
+    IN /\ PendingPrWr(p, "Invalid", Transition)
 
 WrInvalidEnd(p) ==
     LET Transition(a, v) ==
         LET HandleReply(msg) ==
-            /\ msg.type = "WrReply"
+            /\ msg.type = "Wr"
             /\ msg.addr = a
             /\ msg.origin = p
+            /\ msg.sender = MemoryId
             /\ caches' = [ caches EXCEPT ![p][a] = msg.val ]
             /\ metadata' = [ metadata EXCEPT ![p][a] = "Modified" ]
-            /\ cache_buses' = [ cache_buses EXCEPT ![p] = <<[type |-> "Ready", addr |-> a, val |-> msg.val ]>> ]
-            /\ UNCHANGED <<memory>>
-        IN MemoryBusConsume(p, HandleReply)
-    IN PendingPrWr(p, "Invalid", Transition)
+            /\ cache_buses' = [ cache_buses EXCEPT ![p] = [type |-> "Ready", addr |-> a, val |-> msg.val ] ]
+            /\ BusConsume
+            /\ UNCHANGED <<memory, bus_owner>>
+        IN BusRead(p, HandleReply)
+    IN /\ PendingPrWr(p, "Invalid", Transition)
 
 WrMemory ==
     LET HandleRequest(msg) ==
         /\ msg.type = "Wr"
+        /\ msg.sender # MemoryId
         /\ memory' = [ memory EXCEPT ![msg.addr] = msg.val ]
-        /\ MemoryBusReply([type |-> "WrReply", sender |-> MemoryId, origin |-> msg.sender, addr |-> msg.addr, val |-> msg.val])
-        /\ UNCHANGED <<caches, metadata, cache_buses>>
-    IN MemoryBusRespond(HandleRequest)
+        /\ BusSend([type |-> "Wr", sender |-> MemoryId, origin |-> msg.sender, addr |-> msg.addr, val |-> msg.val])
+        /\ UNCHANGED <<caches, bus_owner, metadata, cache_buses>>
+    IN /\ BusRead(MemoryId, HandleRequest)
 
 Evict(p) ==
     /\ p \in ProcessIds
@@ -204,7 +197,7 @@ Evict(p) ==
         /\ metadata[p][a] # "Invalid"
         /\ metadata' = [ metadata EXCEPT ![p][a] = "Invalid" ]
         /\ caches' = [ caches EXCEPT ![p][a] = Zero ]
-        /\ UNCHANGED <<memory, memory_bus, cache_buses>>
+        /\ UNCHANGED <<memory, bus_owner, memory_bus, cache_buses>>
 
 Snoop(p) ==
     LET Inspect(msg) ==
@@ -213,27 +206,17 @@ Snoop(p) ==
               /\ msg.type = "Rd"
               /\ metadata' = [ metadata EXCEPT ![p][msg.addr] = "Shared" ]
               /\ UNCHANGED <<memory, caches, cache_buses>>
-           \/ /\ metadata[p][msg.addr] = "Shared"
-              /\ msg.type = "Rd"
-              /\ UNCHANGED <<memory, caches, metadata, cache_buses>>
            \/ /\ metadata[p][msg.addr] \in { "Shared", "Modified" }
               /\ msg.type = "Wr"
               /\ metadata' = [ metadata EXCEPT ![p][msg.addr] = "Invalid" ]
               /\ UNCHANGED <<memory, caches, cache_buses>>
-           \/ /\ metadata[p][msg.addr] = "Invalid"
-              /\ msg.type \in {"Rd", "Wr"}
-              /\ UNCHANGED <<memory, caches, metadata, cache_buses>>
-           \/ /\ msg.type \in {"RdReply", "WrReply"}
-              /\ UNCHANGED <<memory, caches, metadata, cache_buses>>
-    IN MemoryBusConsume(p, Inspect)
+    IN /\ BusRead(p, Inspect)
+       /\ UNCHANGED<<memory_bus, bus_owner>>
 
-Next ==
+Work ==
     \/ RdMemory
     \/ WrMemory
     \/ \E p \in ProcessIds :
-            \/ PrRd(p)
-            \/ PrWr(p)
-            \/ PrContinue(p)
             \/ RdModified(p)
             \/ RdShared(p)
             \/ RdInvalidBegin(p)
@@ -244,18 +227,29 @@ Next ==
             \/ WrSharedEnd(p)
             \/ WrInvalidBegin(p)
             \/ WrInvalidEnd(p)
-            \/ Evict(p)
             \/ Snoop(p)
 
-Fairness == \* Actions that drain the memory bus
-    /\ WF_vars(RdMemory)
-    /\ WF_vars(WrMemory)
-    /\ \A p \in ProcessIds :
-         /\ WF_vars(RdInvalidEnd(p))
-         /\ WF_vars(WrModifiedEnd(p))
-         /\ WF_vars(WrSharedEnd(p))
-         /\ WF_vars(WrInvalidEnd(p))
-         /\ WF_vars(Snoop(p))
+PassToken ==
+    /\ ~ ENABLED Work
+    /\ LET nextId == bus_owner + 1 IN
+       LET nextOwner == IF nextId > ProcessCount THEN MemoryId ELSE nextId IN
+       bus_owner' = nextOwner
+    /\ UNCHANGED <<memory, memory_bus, caches, metadata, cache_buses>>
+
+Perturbation ==
+    \/ \E p \in ProcessIds :
+        \/ PrRd(p)
+        \/ PrWr(p)
+        \/ Evict(p)
+
+Next ==
+    \/ Work
+    \/ Perturbation
+    \/ PassToken
+
+Fairness ==
+    /\ WF_vars(Work)
+    /\ SF_vars(PassToken)
 
 Spec == Init /\ [][Next]_vars /\ Fairness
 
@@ -274,12 +268,16 @@ CachesAreCoherent ==
             \/ metadata[p2][a] = "Invalid"
             \/ caches[p1][a] = caches[p2][a]
 
-BusDrains == []<>(memory_bus = [p \in BusDestinations |-> <<>>])
+BusDrains == []<>(memory_bus = <<>>)
 
 CachesAreCoherentWhenBusDrains ==
-    ~ MemoryBusEmpty \/ CachesAreCoherent
+    ~ BusEmpty \/ CachesAreCoherent
 
 MaximumOfOneModifiedLinePerAddressWhenBusDrains ==
-    ~ MemoryBusEmpty \/ MaximumOfOneModifiedLinePerAddress
+    ~ BusEmpty \/ MaximumOfOneModifiedLinePerAddress
+
+PrActionsEventuallySucceed ==
+    \A p \in ProcessIds :
+        /\ cache_buses[p].type \in { "Rd", "Wr" } ~> cache_buses[p].type = "Ready"
 
 ====
